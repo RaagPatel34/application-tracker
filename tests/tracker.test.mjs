@@ -75,3 +75,25 @@ test('flexible matching still rejects different seniority',()=>assert.equal(deci
 test('company fragments do not match arbitrary brands',()=>assert.equal(decision({company:'Acorn Labs'},{subject:'Acorn Financial Data Analyst application'}).kind,'ignore'));
 test('role words scattered across unrelated sentences do not match',()=>assert.equal(decision({title:'Customer Support Engineer'},{subject:'Acorn Labs application',text:'Customer service matters. Contact support. Engineer your future. We will not be moving forward.'}).kind,'review'));
 test('two flexible role matches require review',()=>assert.equal(matcher.decide([{...app,title:'Software Engineer New Grad'},{...app,key:'b',title:'New Grad Software Engineer'}],{...mail,subject:'Acorn Labs New Grad Software Engineer application'},{}).kind,'review'));
+
+for(const text of [
+ 'Thank you for applying. If you are selected, we will schedule an interview.',
+ 'We have received your application. Our recruiter will review it and contact candidates for next steps.',
+ 'Your application was successfully submitted. We offer competitive benefits.',
+ 'Thank you for your application. We will contact you for an interview if your qualifications match.'
+])test('receipt boilerplate ignored: '+text.slice(0,45),()=>assert.equal(decision({}, {text}).kind,'ignore'));
+test('receipt intro does not hide rejection',()=>assert.equal(decision({}, {text:'Thank you for applying. We will not be moving forward. Should you see another opening, please apply.'}).status,'Rejected'));
+test('receipt intro does not hide assessment request',()=>assert.equal(decision({}, {text:'Thank you for applying. Please complete this assessment.'}).kind,'review'));
+test('receipt intro does not hide interview invitation',()=>assert.equal(decision({}, {text:'Thank you for applying. We invite you to an interview.'}).status,'Interview Stage'));
+test('newsletter mentioning a company and hiring is ignored',()=>assert.equal(decision({company:'Point'}, {subject:'The AI writers we follow',text:'This newsletter covers hiring and interview trends. Here is a point about candidates.'}).kind,'ignore'));
+test('consumer promo with recruiting boilerplate ignored',()=>assert.equal(decision({company:'Pure'}, {subject:'More flavor than ever',text:'Pure flavor. New recipes and an offer for dinner. Browse our careers and employment opportunities.'}).kind,'ignore'));
+test('real rejection in promotions category retained',()=>assert.equal(decision({}, {labels:['CATEGORY_PROMOTIONS'],text:'We will not be moving forward with your application. Unsubscribe from job alerts.'}).status,'Rejected'));
+test('matching protected status does not clutter review',()=>assert.equal(decision({status:'Rejected'}, {},{a:{manual:true}}).kind,'same'));
+test('existing receipt reviews are resolved without deleting real assessments or editing sheet',()=>{
+ const c=vm.createContext({Date});vm.runInContext(matcherSource,c);vm.runInContext(backend,c);
+ const events={receipt:{id:'receipt',outcome:'review'},assessment:{id:'assessment',outcome:'review'}};
+ const rows={Applications:{a:{expected:'In Consideration'}},Messages:{},Events:events};const props={};
+ c.config_=()=>({startDate:'2026-06-07'});c.reconcile_=()=>{};c.applications_=()=>[app];c.state_=()=>rows.Applications;c.hash_=x=>x;c.json_=(k,d)=>props[k]??d;c.save_=(k,v)=>props[k]=v;c.records_=(_,tab)=>Object.entries(rows[tab]).map(([id,data])=>({id,data}));c.put_=(_,tab,id,data)=>rows[tab][id]=data;c.message_=x=>x;c.writeEvent_=()=>assert.fail('cleanup must not write progress');
+ c.Gmail={Users:{Messages:{list:()=>({messages:[]}),get:(_,id)=>({...mail,id,text:id==='receipt'?'Thank you for applying. We offer great benefits.':'Please complete this assessment.'})}}};
+ c.scan_();assert.equal(events.receipt.outcome,'resolved');assert.equal(events.assessment.outcome,'review');assert.equal(events.assessment.reviewFilterVersion,'v5');
+});
