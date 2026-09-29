@@ -59,3 +59,19 @@ test('scan includes Spam/Trash, queues historical messages, and checkpoints comp
 });
 test('Advanced Gmail byte arrays are already decoded',()=>{const c=vm.createContext({Utilities:{base64DecodeWebSafe(){throw Error('must not double decode');},newBlob(b){return {getDataAsString:()=>Buffer.from(b).toString('utf8')};}}});vm.runInContext(fs.readFileSync('google-app/Code.gs','utf8'),c);assert.equal(c.decode_({data:[72,101,108,108,111]}),'Hello');});
 test('consumer offers do not create recruiting reviews for common company words',()=>{const d=matcher.decide([{...app,company:'Point'}],{...mail,subject:'SALE EXTENDED',text:'A special offer! Earn a point with dinner.'},{});assert.equal(d.kind,'ignore');});
+
+for(const [name,company,title,subject,text,sender] of [
+ ['Renesas shorter brand','Renesas Electronics','Customer Data Traceability Engineer','Your application at Renesas','Customer Data Traceability Engineer at Renesas. We decided to move forward with other candidates.',''],
+ ['JPMorgan compact brand','JP Morgan & Chase','Market Risk Time Series Analytics Analyst/Associate','Application status','Market Risk Time Series Analytics - Analyst/Associate at JPMorganChase. We are moving forward with other candidates.',''],
+ ['company in sender','Acorn Labs','Data Analyst','Your application','Your Data Analyst application was not selected.','Acorn Labs Hiring Team <careers@example.com>'],
+ ['inserted role qualifiers','Microsoft','Software Engineer - Cleared','Application update','Microsoft Software Engineer - CTJ - TS (Cleared). We will not be moving forward.',''],
+ ['reordered role words','Acorn Labs','Software Engineer New Grad','Acorn Labs application','New Grad Software Engineer. We decided not to proceed.',''],
+ ['minor role typo','Acorn Labs','Customer Techinical Support Engineer','Acorn Labs application','Customer Technical Support Engineer. We will not be moving forward.',''],
+ ['legal suffix','Acorn Labs LLC','Data Analyst','Acorn Labs application','Data Analyst. We will not be moving forward.',''],
+ ['role abbreviation','Acorn Labs','Sr Data Analyst','Acorn Labs application','Senior Data Analyst. We will not be moving forward.','']
+])test(name,()=>assert.equal(decision({company,title},{subject,text,sender}).kind,'update'));
+test('flexible matching still rejects missing role specialties',()=>assert.equal(decision({title:'Software Engineer Backend'},{subject:'Acorn Labs Frontend Software Engineer application'}).kind,'review'));
+test('flexible matching still rejects different seniority',()=>assert.equal(decision({title:'Senior Data Analyst'},{subject:'Acorn Labs Junior Data Analyst application'}).kind,'review'));
+test('company fragments do not match arbitrary brands',()=>assert.equal(decision({company:'Acorn Labs'},{subject:'Acorn Financial Data Analyst application'}).kind,'ignore'));
+test('role words scattered across unrelated sentences do not match',()=>assert.equal(decision({title:'Customer Support Engineer'},{subject:'Acorn Labs application',text:'Customer service matters. Contact support. Engineer your future. We will not be moving forward.'}).kind,'review'));
+test('two flexible role matches require review',()=>assert.equal(matcher.decide([{...app,title:'Software Engineer New Grad'},{...app,key:'b',title:'New Grad Software Engineer'}],{...mail,subject:'Acorn Labs New Grad Software Engineer application'},{}).kind,'review'));
