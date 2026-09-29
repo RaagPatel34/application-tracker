@@ -9,7 +9,7 @@ Application Tracker is a personal Google Apps Script web app with a React dashbo
 ## What it does
 
 - Reads Inbox, archived mail, custom labels, Spam, and Trash without changing email.
-- Matches the company, full role title, and application date before suggesting a change.
+- Matches company names (including supported brand aliases and sender names), role words, and application dates before suggesting a change. Role matching tolerates reordered words, common abbreviations, inserted qualifiers, and a single-character typo in long words.
 - Automatically applies clear **new** rejection or interview signals when enabled.
 - Sends ambiguous matches, assessments, conflicting signals, and Spam to a review queue.
 - Protects detected manual Progress edits and existing later-stage statuses.
@@ -93,7 +93,7 @@ The private history stores application details, message IDs, subjects, senders, 
 
 ## Important limitations
 
-- Exact matching can miss abbreviations, aliases, spelling mistakes, or unusual email wording.
+- Matching can still miss unknown company aliases, missing role details, larger spelling differences, or unusual email wording. Company-only matches and multiple candidate applications require review.
 - Quoted text and generic company names can cause review items; check the source email before approving.
 - Permanently deleted emails cannot be recovered.
 - Large mailboxes can take many hourly batches to finish their first scan. Google quotas and service errors can delay processing.
@@ -103,7 +103,7 @@ The private history stores application details, message IDs, subjects, senders, 
 
 ## Validation
 
-36 automated tests cover clear and ambiguous matches, Spam/Trash, manual protection, stale updates, formula protection, audit intent, byte-array/base64url email decoding, and resumable scan behavior. The personal installation was also checked against real Gmail messages and a live Sheet. These checks do not guarantee perfect classification of every email.
+49 automated tests cover clear and ambiguous matches, Spam/Trash, manual protection, stale updates, formula protection, audit intent, byte-array/base64url email decoding, and resumable scan behavior. The personal installation was also checked against real Gmail messages and a live Sheet. These checks do not guarantee perfect classification of every email.
 
 ## Portfolio summary
 
