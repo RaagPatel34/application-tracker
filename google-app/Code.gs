@@ -136,7 +136,7 @@ function scan_() {
     reconcile_(c);
     var apps=applications_(c), state=state_(c);
     apps.forEach(function(a){var p=state[a.key],changed=false;if(!p){p={expected:a.status,manual:false,latestEmail:0};changed=true;}else if(p.expected!==a.status){p.expected=a.status;p.manual=true;p.lastEvent=null;changed=true;}state[a.key]=p;if(changed)put_(c,'Applications',a.key,p);});
-    var signature=hash_('matcher-v4|'+apps.map(function(a){return a.key;}).sort().join('|'));
+    var signature=hash_('matcher-v5|'+apps.map(function(a){return a.key;}).sort().join('|'));
     var cursor=json_(TRACKER.cursor,null),now=Math.floor(Date.now()/1000);
     if(!cursor||c.signature!==signature){cursor={after:Math.floor(Date.parse(c.startDate+'T00:00:00Z')/1000)-86400,before:now,page:null,scanned:0,backfillComplete:false};c.signature=signature;save_(TRACKER.config,c);save_(TRACKER.cursor,cursor);}
     var liveKey='tracker.live.v1',live=json_(liveKey,null);
@@ -172,6 +172,18 @@ function scan_() {
       }
     }
     lane(live,liveKey,40,false);
+    // Prioritize cleaning existing review items rather than waiting for the full backfill.
+    var reviewIds=Object.keys(events).filter(function(id){return events[id].outcome==='review'&&events[id].reviewFilterVersion!=='v5';});
+    for(var r=0;r<Math.min(reviewIds.length,20)&&Date.now()-started<210000;r++){
+      var review=events[reviewIds[r]],reviewMail=message_(Gmail.Users.Messages.get('me',review.id,{format:'full'}));
+      if(reviewMail.decodeError)continue;
+      var check=TrackerMatcher.decide(apps,reviewMail,state);
+      review.reviewFilterVersion='v5';
+      if(check.kind==='ignore'||check.kind==='same'){
+        review.outcome='resolved';review.reason='Review filter recheck: '+check.reason;
+      }
+      put_(c,'Events',review.id,review);
+    }
     lane(cursor,TRACKER.cursor,60,true);
     save_(TRACKER.health,{lastRun:new Date().toISOString(),message:'Checked '+processed+' messages this run.',error:null});
   }catch(err){save_(TRACKER.health,{lastRun:new Date().toISOString(),message:'Scan needs attention.',error:String(err.message||err)});throw err;}
