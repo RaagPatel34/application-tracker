@@ -136,7 +136,7 @@ function scan_() {
     reconcile_(c);
     var apps=applications_(c), state=state_(c);
     apps.forEach(function(a){var p=state[a.key],changed=false;if(!p){p={expected:a.status,manual:false,latestEmail:0};changed=true;}else if(p.expected!==a.status){p.expected=a.status;p.manual=true;p.lastEvent=null;changed=true;}state[a.key]=p;if(changed)put_(c,'Applications',a.key,p);});
-    var signature=hash_('matcher-v3|'+apps.map(function(a){return a.key;}).sort().join('|'));
+    var signature=hash_('matcher-v4|'+apps.map(function(a){return a.key;}).sort().join('|'));
     var cursor=json_(TRACKER.cursor,null),now=Math.floor(Date.now()/1000);
     if(!cursor||c.signature!==signature){cursor={after:Math.floor(Date.parse(c.startDate+'T00:00:00Z')/1000)-86400,before:now,page:null,scanned:0,backfillComplete:false};c.signature=signature;save_(TRACKER.config,c);save_(TRACKER.cursor,cursor);}
     var liveKey='tracker.live.v1',live=json_(liveKey,null);
