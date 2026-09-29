@@ -11,6 +11,7 @@ Application Tracker is a personal Google Apps Script web app with a React dashbo
 - Reads Inbox, archived mail, custom labels, Spam, and Trash without changing email.
 - Matches company names (including supported brand aliases and sender names), role words, and application dates before suggesting a change. Role matching tolerates reordered words, common abbreviations, inserted qualifiers, and a single-character typo in long words.
 - Automatically applies clear **new** rejection or interview signals when enabled.
+- Filters application receipts and unrelated promotional messages; rechecks existing review items in batches.
 - Sends ambiguous matches, assessments, conflicting signals, and Spam to a review queue.
 - Protects detected manual Progress edits and existing later-stage statuses.
 - Keeps an audit history and source-email links, with guarded undo.
@@ -103,7 +104,7 @@ The private history stores application details, message IDs, subjects, senders, 
 
 ## Validation
 
-49 automated tests cover clear and ambiguous matches, Spam/Trash, manual protection, stale updates, formula protection, audit intent, byte-array/base64url email decoding, and resumable scan behavior. The personal installation was also checked against real Gmail messages and a live Sheet. These checks do not guarantee perfect classification of every email.
+61 automated tests cover clear and ambiguous matches, Spam/Trash, manual protection, stale updates, formula protection, audit intent, byte-array/base64url email decoding, and resumable scan behavior. The personal installation was also checked against real Gmail messages and a live Sheet. These checks do not guarantee perfect classification of every email.
 
 ## Portfolio summary
 
