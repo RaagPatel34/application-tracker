@@ -104,7 +104,7 @@ The private history stores application details, message IDs, subjects, senders, 
 
 ## Validation
 
-63 automated tests cover clear and ambiguous matches, Spam/Trash, manual protection, stale updates, formula protection, audit intent, byte-array/base64url email decoding, and resumable scan behavior. The personal installation was also checked against real Gmail messages and a live Sheet. These checks do not guarantee perfect classification of every email.
+64 automated tests cover clear and ambiguous matches, Spam/Trash, manual protection, stale updates, formula protection, audit intent, byte-array/base64url email decoding, and resumable scan behavior. The personal installation was also checked against real Gmail messages and a live Sheet. These checks do not guarantee perfect classification of every email.
 
 ## Portfolio summary
 
