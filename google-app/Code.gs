@@ -130,6 +130,14 @@ function reconcile_(c) {
 }
 function scanNow() { return locked_(function(){ scan_(); return getSnapshot(); }); }
 function scheduledScan() { locked_(function(){scan_();}); }
+function gmailRetry_(operation) {
+  for(var attempt=0;;attempt++) {
+    try{return operation();}catch(error){
+      if(attempt>=4 || !/quota exceeded|rate limit|too many requests|userRateLimitExceeded/i.test(String(error)))throw error;
+      Utilities.sleep(Math.pow(2,attempt)*1000);
+    }
+  }
+}
 function scan_() {
   var c=config_(), started=Date.now();
   try {
@@ -147,14 +155,14 @@ function scan_() {
       var count=0;
       while(!part.finished&&Date.now()-started<210000&&count<limit){
         var args={q:'in:anywhere after:'+part.after+' before:'+part.before,includeSpamTrash:true,maxResults:20};if(part.page)args.pageToken=part.page;
-        var page;try{page=Gmail.Users.Messages.list('me',args);}catch(err){if(part.page){part.page=null;save_(key,part);}throw err;}
+        var page;try{page=gmailRetry_(function(){return Gmail.Users.Messages.list('me',args);});}catch(err){if(part.page){part.page=null;save_(key,part);}throw err;}
         var ids=page.messages||[],complete=true;
         for(var i=0;i<ids.length;i++){
           if(Date.now()-started>225000){complete=false;break;}
           var id=ids[i].id;
           if(seen[id]===signature)continue;
           if(events[id]&&['applied','undone','dismissed','conflict'].indexOf(events[id].outcome)>=0){put_(c,'Messages',id,{processedAt:Date.now(),signature:signature});seen[id]=signature;continue;}
-          var m=message_(Gmail.Users.Messages.get('me',id,{format:'full'})),decision=m.decodeError?{kind:'review',status:null,reason:m.decodeError}:TrackerMatcher.decide(apps,m,state);
+          var m=message_(gmailRetry_(function(){return Gmail.Users.Messages.get('me',id,{format:'full'});})),decision=m.decodeError?{kind:'review',status:null,reason:m.decodeError}:TrackerMatcher.decide(apps,m,state);
           if(events[id]&&events[id].outcome==='review'&&(decision.kind==='ignore'||decision.kind==='same')){var resolved=events[id];resolved.outcome='resolved';resolved.reason='Message successfully rechecked. '+decision.reason;put_(c,'Events',id,resolved);}
           if(decision.kind==='review'||decision.kind==='update'){
             var a=apps.find(function(x){return x.key===decision.key;});
@@ -175,7 +183,7 @@ function scan_() {
     // Prioritize cleaning existing review items rather than waiting for the full backfill.
     var reviewIds=Object.keys(events).filter(function(id){return events[id].outcome==='review'&&events[id].reviewFilterVersion!=='v5';});
     for(var r=0;r<Math.min(reviewIds.length,20)&&Date.now()-started<210000;r++){
-      var review=events[reviewIds[r]],reviewMail=message_(Gmail.Users.Messages.get('me',review.id,{format:'full'}));
+      var review=events[reviewIds[r]],reviewMail=message_(gmailRetry_(function(){return Gmail.Users.Messages.get('me',review.id,{format:'full'});}));
       if(reviewMail.decodeError)continue;
       var check=TrackerMatcher.decide(apps,reviewMail,state);
       review.reviewFilterVersion='v5';
