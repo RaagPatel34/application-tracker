@@ -8,7 +8,7 @@ A private Google Apps Script app that checks Gmail and keeps the Progress dropdo
 3. In Project Settings, turn on “Show appsscript.json manifest file in editor.” Replace it with google-app/appsscript.json. This enables the Gmail service and requests read-only Gmail, Sheets editing, trigger management, and account identity access.
 4. Save. Deploy → New deployment → Web app. Execute as yourself; access **Only myself**. Review Google's permission request before authorizing.
 5. Open your deployment URL. In Setup, paste the spreadsheet URL with the intended tab's gid and select the earliest application date. Expected columns A–E: Job Title, Company, Date Applied, Progress, Job Link.
-6. Run a scan in review mode. Inspect matches and confirm any historical proposals you want applied.
+6. Run a scan in review mode to inspect matches. Enabling automatic updates allows clear matches from both older and new emails to update Progress directly; manual protections still apply.
 7. Enable the hourly schedule. Enable automatic changes when ready. Only clear, exact matches from emails received after enabling automatic changes are eligible. Historical messages remain review items.
 
 Each person uses their own Google project, authorization, spreadsheet, and private history workbook. Do not share your personal deployment as a public service.

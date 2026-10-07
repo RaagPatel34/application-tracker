@@ -15,7 +15,8 @@ Application Tracker is a personal Google Apps Script web app with a React dashbo
 - Sends ambiguous matches, assessments, conflicting signals, and Spam to a review queue.
 - Protects detected manual Progress edits and existing later-stage statuses.
 - Keeps an audit history and source-email links, with guarded undo.
-- Processes older mail in resumable batches while checking recent messages separately.
+- Processes older mail in resumable batches while checking recent messages separately. Adding rows no longer restarts an unfinished scan.
+- With automatic updates enabled, clear matches from older mail and previously held reviews write directly to the selected Progress column. Explicit decisions receive a priority catch-up scan.
 
 ## How it works
 
@@ -104,7 +105,7 @@ The private history stores application details, message IDs, subjects, senders, 
 
 ## Validation
 
-64 automated tests cover clear and ambiguous matches, Spam/Trash, manual protection, stale updates, formula protection, audit intent, byte-array/base64url email decoding, and resumable scan behavior. The personal installation was also checked against real Gmail messages and a live Sheet. These checks do not guarantee perfect classification of every email.
+73 automated tests cover clear and ambiguous matches, Spam/Trash, manual protection, stale updates, formula protection, audit intent, byte-array/base64url email decoding, and resumable scan behavior. The personal installation was also checked against real Gmail messages and a live Sheet. These checks do not guarantee perfect classification of every email.
 
 ## Portfolio summary
 
