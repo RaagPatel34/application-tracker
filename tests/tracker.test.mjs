@@ -49,13 +49,13 @@ test('explicit approval preserves protection and audit',()=>{const x=setup();x.c
 test('private deployment and readonly Gmail permissions',()=>{const m=JSON.parse(fs.readFileSync('google-app/appsscript.json'));assert.equal(m.webapp.access,'MYSELF');assert.ok(m.oauthScopes.includes('https://www.googleapis.com/auth/gmail.readonly'));assert.ok(!m.oauthScopes.some(x=>/gmail.modify|mail.google.com/.test(x)));});
 test('Gmail unpadded base64 bodies are padded before decoding',()=>{const c=vm.createContext({Utilities:{base64DecodeWebSafe(s){assert.equal(s.length%4,0);return Buffer.from(s,'base64url');},newBlob(b){return {getDataAsString:()=>b.toString('utf8')};}}});vm.runInContext(backend.replace('Utilities.base64DecodeWebSafe(body.data)',"Utilities.base64DecodeWebSafe(String(body.data)+'='.repeat((4-String(body.data).length%4)%4))"),c);assert.equal(c.decode_({data:'SGVsbG8'}),'Hello');});
 test('unreadable email becomes a review item instead of blocking all scanning',()=>{const c=vm.createContext({});vm.runInContext(fs.readFileSync('google-app/Code.gs','utf8'),c);c.body_=()=>{throw Error('malformed');};const m=c.message_({id:'bad',internalDate:'200',payload:{headers:[]}});assert.ok(m.decodeError);assert.equal(m.text,'');});
-test('scan includes Spam/Trash, queues historical messages, and checkpoints completion',()=>{
+test('scan includes Spam/Trash, applies historical clear matches, and checkpoints completion',()=>{
  const c=vm.createContext({Date,SpreadsheetApp:{flush(){}}});vm.runInContext(matcherSource,c);vm.runInContext(fs.readFileSync('google-app/Code.gs','utf8'),c);
  const rows={Applications:{a:{expected:'In Consideration',manual:false,latestEmail:0}},Messages:{},Events:{}};const props={};const config={owner:'owner@example.com',startDate:'2026-06-07',autoApply:true,autoSince:Date.now()};
  c.config_=()=>config;c.reconcile_=()=>{};c.applications_=()=>[{...app}];c.state_=()=>rows.Applications;c.hash_=x=>x;c.json_=(k,d)=>props[k]??d;c.save_=(k,v)=>{props[k]=JSON.parse(JSON.stringify(v));};c.records_=(_,tab)=>Object.entries(rows[tab]).map(([id,data])=>({id,data}));c.put_=(_,tab,id,d)=>{rows[tab][id]=JSON.parse(JSON.stringify(d));};c.message_=x=>x;
- let lists=0,writes=0;c.writeEvent_=()=>writes++;
- c.Gmail={Users:{Messages:{list(_,args){assert.equal(args.includeSpamTrash,true);assert.ok(args.q.startsWith('in:anywhere '));lists++;return {messages:lists===1?[]:[{id:'historical'}]};},get(){return {...mail,id:'historical'};}}}};
- c.scan_();assert.equal(writes,0);assert.equal(rows.Events.historical.outcome,'review');assert.equal(props[c.TRACKER.cursor].backfillComplete,true);assert.equal(props[c.TRACKER.health].error,null);assert.ok(rows.Messages.historical.signature);
+ let lists=0,writes=0;c.writeEvent_=(_,event)=>{writes++;event.outcome='applied';rows.Events[event.id]=event;};
+ c.Gmail={Users:{Messages:{list(_,args){assert.equal(args.includeSpamTrash,true);assert.ok(args.q.startsWith('in:anywhere '));lists++;return {messages:lists===3?[{id:'historical'}]:[]};},get(){return {...mail,id:'historical'};}}}};
+ c.scan_();assert.equal(writes,1);assert.equal(rows.Events.historical.outcome,'applied');assert.equal(props[c.TRACKER.cursor].backfillComplete,true);assert.equal(props[c.TRACKER.health].error,null);assert.ok(rows.Messages.historical.signature);
 });
 test('Advanced Gmail byte arrays are already decoded',()=>{const c=vm.createContext({Utilities:{base64DecodeWebSafe(){throw Error('must not double decode');},newBlob(b){return {getDataAsString:()=>Buffer.from(b).toString('utf8')};}}});vm.runInContext(fs.readFileSync('google-app/Code.gs','utf8'),c);assert.equal(c.decode_({data:[72,101,108,108,111]}),'Hello');});
 test('consumer offers do not create recruiting reviews for common company words',()=>{const d=matcher.decide([{...app,company:'Point'}],{...mail,subject:'SALE EXTENDED',text:'A special offer! Earn a point with dinner.'},{});assert.equal(d.kind,'ignore');});
@@ -95,9 +95,48 @@ test('existing receipt reviews are resolved without deleting real assessments or
  const rows={Applications:{a:{expected:'In Consideration'}},Messages:{},Events:events};const props={};
  c.config_=()=>({startDate:'2026-06-07'});c.reconcile_=()=>{};c.applications_=()=>[app];c.state_=()=>rows.Applications;c.hash_=x=>x;c.json_=(k,d)=>props[k]??d;c.save_=(k,v)=>props[k]=v;c.records_=(_,tab)=>Object.entries(rows[tab]).map(([id,data])=>({id,data}));c.put_=(_,tab,id,data)=>rows[tab][id]=data;c.message_=x=>x;c.writeEvent_=()=>assert.fail('cleanup must not write progress');
  c.Gmail={Users:{Messages:{list:()=>({messages:[]}),get:(_,id)=>({...mail,id,text:id==='receipt'?'Thank you for applying. We offer great benefits.':'Please complete this assessment.'})}}};
- c.scan_();assert.equal(events.receipt.outcome,'resolved');assert.equal(events.assessment.outcome,'review');assert.equal(events.assessment.reviewFilterVersion,'v6');
+ c.scan_();assert.equal(events.receipt.outcome,'resolved');assert.equal(events.assessment.outcome,'review');assert.equal(events.assessment.reviewFilterVersion,'v7');
 });
 test('transient Gmail quota errors back off and retry',()=>{const sleeps=[];const c=vm.createContext({Utilities:{sleep:n=>sleeps.push(n)}});vm.runInContext(backend,c);let calls=0;assert.equal(c.gmailRetry_(()=>{if(++calls<3)throw Error('Quota exceeded');return 'ok';}),'ok');assert.deepEqual(sleeps,[1000,2000]);});
 test('quota retries are bounded and other errors are not retried',()=>{const sleeps=[];const c=vm.createContext({Utilities:{sleep:n=>sleeps.push(n)}});vm.runInContext(backend,c);let calls=0;assert.throws(()=>c.gmailRetry_(()=>{calls++;throw Error('Quota exceeded');}),/Quota/);assert.equal(calls,5);assert.deepEqual(sleeps,[1000,2000,4000,8000]);calls=0;assert.throws(()=>c.gmailRetry_(()=>{calls++;throw Error('Not authorized');}),/authorized/);assert.equal(calls,1);});
 
 test('receipt social invitation is not an interview action',()=>assert.equal(decision({}, {subject:'Thank You for Applying',text:'Acorn Labs will review your application and if the role is a match you will be invited to interview. We invite you to explore our company by following us on social.'}).kind,'ignore'));
+
+test('ordinary HTML quote boxes preserve employer decisions',()=>{
+ const c=vm.createContext({});vm.runInContext(backend,c);c.decode_=b=>b.data;
+ const text=c.body_({mimeType:'text/html',body:{data:'<p>Acorn Labs Data Analyst application</p><blockquote>We have decided not to move forward with your candidacy.</blockquote>'}});
+ assert.match(text,/decided not to move forward/);assert.equal(decision({}, {text}).status,'Rejected');
+});
+test('HTML reply quotes are still removed',()=>{
+ const c=vm.createContext({});vm.runInContext(backend,c);c.decode_=b=>b.data;
+ assert.doesNotMatch(c.body_({mimeType:'text/html',body:{data:'<p>Hello</p><blockquote type="cite">We will not be moving forward.</blockquote>'}}),/moving forward/);
+});
+test('application under review acknowledgment is ignored',()=>assert.equal(decision({}, {text:'Our team is currently reviewing your application. Should we find a fit, we will contact you for a phone interview.'}).kind,'ignore'));
+test('job list mentioning a tracked role is ignored',()=>assert.equal(decision({}, {subject:'41 New Jobs Posted Today',text:'Acorn Labs Data Analyst. Interview and offer preparation newsletter.'}).kind,'ignore'));
+function scanHarness({events={},autoApply=true,manual=false,cursor=null,signature='old'}={}){
+ let current='In Consideration',writes=0;
+ const c=vm.createContext({Date,SpreadsheetApp:{flush(){},DataValidationCriteria:{VALUE_IN_LIST:'list'}}});vm.runInContext(matcherSource,c);vm.runInContext(backend,c);
+ const rows={Applications:{a:{expected:current,manual,latestEmail:0}},Messages:{},Events:events};const props={};if(cursor)props[c.TRACKER.cursor]=cursor;
+ const config={owner:'owner@example.com',startDate:'2026-06-07',autoApply,autoSince:Date.now(),signature};
+ c.config_=()=>config;c.reconcile_=()=>{};c.applications_=()=>[{...app,row:7,status:current}];c.fresh_=()=>c.applications_()[0];c.state_=()=>rows.Applications;c.hash_=x=>x;c.json_=(k,d)=>props[k]??d;c.save_=(k,v)=>{props[k]=JSON.parse(JSON.stringify(v));};c.records_=(_,tab)=>Object.entries(rows[tab]).map(([id,data])=>({id,data}));c.put_=(_,tab,id,d)=>{rows[tab][id]=JSON.parse(JSON.stringify(d));};c.message_=x=>x;
+ c.source_=()=>({getRange:(row,col)=>{assert.equal(row,7);assert.equal(col,4);return {getFormula:()=>'',getDataValidation:()=>null,getValue:()=>current,setValue:v=>{current=v;writes++;},getNote:()=>'',setNote:()=>{}};}});
+ c.Gmail={Users:{Messages:{list:()=>({messages:[]}),get:(_,id)=>({...mail,id})}}};
+ return {c,rows,props,config,value:()=>current,writes:()=>writes};
+}
+test('previously held clear rejection writes the actual progress cell on scheduled scan',()=>{
+ const x=scanHarness({events:{m:{...mail,emailDate:mail.date,createdAt:1,outcome:'review',reviewFilterVersion:'v6',before:'In Consideration',after:null}}});
+ x.c.scan_();assert.equal(x.value(),'Rejected');assert.equal(x.writes(),1);assert.equal(x.rows.Events.m.outcome,'applied');
+ x.c.scan_();assert.equal(x.writes(),1);
+});
+test('catch-up decision scan writes old clear rejection despite old autoSince cutoff',()=>{
+ const x=scanHarness();x.c.Gmail.Users.Messages.list=(_,args)=>({messages:args.q.includes('other candidates')?[{id:'m'}]:[]});
+ x.c.scan_();assert.equal(x.value(),'Rejected');assert.equal(x.rows.Events.m.outcome,'applied');
+});
+for(const opts of [{autoApply:false},{manual:true}])test('held rejection respects '+JSON.stringify(opts),()=>{
+ const x=scanHarness({...opts,events:{m:{...mail,emailDate:200,outcome:'review'}}});x.c.scan_();assert.equal(x.writes(),0);assert.equal(x.rows.Events.m.outcome,'review');
+});
+test('adding applications preserves unfinished historical page',()=>{
+ const cursor={matcherVersion:'matcher-v7',after:10,before:20,page:'continue-here',scanned:900,finished:false};const x=scanHarness({cursor});let historyPage;
+ x.c.Gmail.Users.Messages.list=(_,args)=>{if(args.q==='in:anywhere after:10 before:20')historyPage=args.pageToken;return {messages:[]};};
+ x.c.scan_();assert.equal(historyPage,'continue-here');assert.equal(x.props[x.c.TRACKER.cursor].scanned,900);
+});
