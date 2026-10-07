@@ -52,7 +52,7 @@ var TrackerMatcher = (function () {
   }
   function classify(text) {
     var t = normalize(text);
-    var rejection = /\b(not be moving forward|will not be moving forward|won t be moving forward|not moving forward with your|decided not to proceed|not selected|not been selected|unable to offer you|pursue other candidates|proceed with other candidates|move forward with other candidates|moving forward with other candidates|position has been filled|application was unsuccessful)\b/.test(t);
+    var rejection = /\b(not be moving forward|will not be moving forward|won t be moving forward|not moving forward with your|decided not to proceed|not selected|not been selected|unable to offer you|pursue other candidates|proceed with other candidates|move forward with other candidates|moving forward with other candidates|position has been filled|application was unsuccessful|decided not to move forward|decided to move forward with other|will not be proceeding|not been shortlisted|will not be progressing)\b/.test(t);
     var invite = /\b(invite you to (an |a |the )?interview|inviting you to (an |a |the )?interview|schedule (an |a |your |the )?interview|interview (is |has been )?scheduled|interview invitation)\b/.test(t);
     if (rejection && invite) return { status: null, reason: 'Conflicting interview and rejection wording. Review the email.' };
     if (rejection) return { status: 'Rejected', reason: 'Explicit rejection wording.' };
@@ -67,14 +67,14 @@ var TrackerMatcher = (function () {
     if(!/\b(application|applicant|candidate|candidates|interview|hiring|recruiter|recruitment|assessment|employment|position|role|job offer)\b/.test(text))return {kind:'ignore',reason:'No recruiting context.'};
     var subject = normalize(message.subject), sender = normalize(message.sender || '');
     var signal = classify(message.subject + ' ' + body);
-    var receipt = /\b(thank you for (applying|your application|submitting)|thanks for (applying|your application)|application (received|submitted|confirmation)|received your application|we have received your|we ve received your|successfully (submitted|received))\b/.test(text);
-    var conditional = /\b(if you (are|were)|if your application|should you|may not|might not|has not been filled|has not been scheduled|do not schedule|if (selected|shortlisted)|if we|if your (skills|qualifications))\b/.test(text);
-    var unconditional = (message.subject+'\n'+body).split(/[\n.!?;]+/).filter(function(line){return !/\b(if|should you|may not|might not)\b/i.test(line);}).join(' ');
+    var receipt = /\b(thank you for (applying|your application|submitting)|thanks for (applying|your application)|application (received|submitted|confirmation)|received your application|we have received your|we ve received your|successfully (submitted|received)|currently reviewing your application|reviewing your application)\b/.test(text);
+    var conditional = /\b(if you (are|were)|if your application|should (you|we)|may not|might not|has not been filled|has not been scheduled|do not schedule|if (selected|shortlisted)|if we|if your (skills|qualifications))\b/.test(text);
+    var unconditional = (message.subject+'\n'+body).split(/[\n.!?;]+/).filter(function(line){return !/\b(if|should (you|we)|may not|might not)\b/i.test(line);}).join(' ');
     var concreteSignal = classify(unconditional);
     var action = /\b(please (complete|take|schedule|book|select|reply|respond|confirm)|we (invite|are inviting|would like to invite) you (to|for) (an? |the )?(interview|assessment|phone|video|call|meeting)|you (are invited|have been selected)|your interview (is|has been)|offer of employment|job offer|offer letter)\b/.test(normalize(unconditional));
     var directSubject = /\b(application|interview|assessment|offer letter|job offer)\b/.test(subject);
     var recruitingSender = /\b(careers|recruiting|recruitment|recruiter|hiring|talent|human resources)\b/.test(sender);
-    var marketing = /\b(newsletter|recommended jobs|job alert|jobs for you|recipes|on the menu|sale extended|percent off|off linkedin premium|student loan|trade in|unsubscribe from job)\b/.test(text);
+    var marketing = /\b(new jobs posted|newsletter|recommended jobs|job alert|jobs for you|recipes|on the menu|sale extended|percent off|off linkedin premium|student loan|trade in|unsubscribe from job)\b/.test(text);
     // Receipts often describe hypothetical interviews and offers in boilerplate.
     // A real rejection, or a concrete request, takes precedence over the receipt.
     if (receipt && !(concreteSignal && concreteSignal.status === 'Rejected') && !(action && !conditional))
@@ -83,7 +83,7 @@ var TrackerMatcher = (function () {
       return {kind:'ignore',reason:'Newsletter or promotional message, not an application update.'};
 
     if (/\b(jobs (tailored|recommended)|job alert|recommended jobs)\b/.test(text) && !(concreteSignal && concreteSignal.status === 'Rejected')) return {kind:'ignore',reason:'Job newsletter.'};
-    if(signal&&!(concreteSignal&&concreteSignal.status)&&/\b(if you (are|were)|if your application|should you|may not|might not|has not been filled|has not been scheduled|do not schedule)\b/.test(text))signal={status:null,reason:'Conditional or negated wording needs review.'};
+    if(signal&&!(concreteSignal&&concreteSignal.status)&&/\b(if you (are|were)|if your application|should (you|we)|may not|might not|has not been filled|has not been scheduled|do not schedule)\b/.test(text))signal={status:null,reason:'Conditional or negated wording needs review.'};
     if (!signal) return { kind: 'ignore', reason: 'No status signal.' };
     var companies = apps.filter(function(a) { return companyMatches(a.company, normalize((message.sender || '') + ' ' + message.subject + ' ' + body)); });
     if (!companies.length) return {kind:'ignore', reason:'No tracked company in message.'};

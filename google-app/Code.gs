@@ -97,7 +97,7 @@ function decode_(body) {
 function body_(payload) {
   function collect(p,type){if(!p||p.filename)return [];if(p.mimeType===type)return [decode_(p.body)];return (p.parts||[]).reduce(function(out,x){return out.concat(collect(x,type));},[]);}
   var plain=collect(payload,'text/plain');if(plain.length)return plain.join('\n');
-  return collect(payload,'text/html').join('\n').replace(/<blockquote[\s\S]*?<\/blockquote>/gi,'').replace(/<[^>]*>/g,' ').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&');
+  return collect(payload,'text/html').join('\n').replace(/<blockquote\b[^>]*(?:type=["\']cite["\']|class=["\'][^"\']*gmail_quote[^"\']*["\'])[^>]*>[\s\S]*?<\/blockquote>/gi,'').replace(/<[^>]*>/g,' ').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&');
 }
 function message_(raw) {var headers=raw.payload.headers||[];function header(name){var h=headers.find(function(x){return x.name.toLowerCase()===name;});return h?h.value:'';}var text='',error=null;try{text=body_(raw.payload).slice(0,60000);}catch(err){error='Could not read this message body. Open the source email to review it.';}return {id:raw.id,subject:header('subject'),sender:header('from'),date:Number(raw.internalDate),labels:raw.labelIds||[],text:text,decodeError:error};}
 function fresh_(c,key) {var apps=applications_(c).filter(function(a){return a.key===key;}); if(apps.length!==1)throw new Error('Application is missing or duplicated; review it in Sheets.');return apps[0];}
@@ -144,9 +144,9 @@ function scan_() {
     reconcile_(c);
     var apps=applications_(c), state=state_(c);
     apps.forEach(function(a){var p=state[a.key],changed=false;if(!p){p={expected:a.status,manual:false,latestEmail:0};changed=true;}else if(p.expected!==a.status){p.expected=a.status;p.manual=true;p.lastEvent=null;changed=true;}state[a.key]=p;if(changed)put_(c,'Applications',a.key,p);});
-    var signature=hash_('matcher-v6|'+apps.map(function(a){return a.key;}).sort().join('|'));
+    var matcherVersion='matcher-v7',signature=hash_(matcherVersion+'|'+apps.map(function(a){return a.key;}).sort().join('|'));
     var cursor=json_(TRACKER.cursor,null),now=Math.floor(Date.now()/1000);
-    if(!cursor||c.signature!==signature){cursor={after:Math.floor(Date.parse(c.startDate+'T00:00:00Z')/1000)-86400,before:now,page:null,scanned:0,backfillComplete:false};c.signature=signature;save_(TRACKER.config,c);save_(TRACKER.cursor,cursor);}
+    if(!cursor||cursor.matcherVersion!==matcherVersion||(cursor.finished&&c.signature!==signature)){cursor={after:Math.floor(Date.parse(c.startDate+'T00:00:00Z')/1000)-86400,before:now,page:null,scanned:0,backfillComplete:false,matcherVersion:matcherVersion};c.signature=signature;save_(TRACKER.config,c);save_(TRACKER.cursor,cursor);}
     var liveKey='tracker.live.v1',live=json_(liveKey,null);
     if(!live||live.finished)live={after:Math.max((live?live.before:cursor.before)-172800,0),before:now,page:null,scanned:0};
     var seen={},events={};records_(c,'Messages').forEach(function(r){seen[r.id]=r.data.signature;});records_(c,'Events').forEach(function(r){events[r.id]=r.data;});
@@ -154,7 +154,7 @@ function scan_() {
     function lane(part,key,limit,backfill){
       var count=0;
       while(!part.finished&&Date.now()-started<210000&&count<limit){
-        var args={q:'in:anywhere after:'+part.after+' before:'+part.before,includeSpamTrash:true,maxResults:20};if(part.page)args.pageToken=part.page;
+        var args={q:'in:anywhere after:'+part.after+' before:'+part.before+(part.query?' '+part.query:''),includeSpamTrash:true,maxResults:20};if(part.page)args.pageToken=part.page;
         var page;try{page=gmailRetry_(function(){return Gmail.Users.Messages.list('me',args);});}catch(err){if(part.page){part.page=null;save_(key,part);}throw err;}
         var ids=page.messages||[],complete=true;
         for(var i=0;i<ids.length;i++){
@@ -168,7 +168,7 @@ function scan_() {
             var a=apps.find(function(x){return x.key===decision.key;});
             var event={id:m.id,createdAt:Date.now(),emailDate:m.date,subject:m.subject,sender:m.sender,source:'https://mail.google.com/mail/u/?authuser='+encodeURIComponent(c.owner)+'#all/'+m.id,key:decision.key||null,company:a?a.company:'Needs a match',title:a?a.title:m.subject,before:a?a.status:null,after:decision.status||null,reason:decision.reason,outcome:'review',candidates:decision.candidates||[]};
             put_(c,'Events',event.id,event);events[id]=event;
-            if(decision.kind==='update'&&c.autoApply&&!backfill&&m.date>=(c.autoSince||Infinity)){writeEvent_(c,event,false);apps=applications_(c);state=state_(c);}
+            if(decision.kind==='update'&&c.autoApply){writeEvent_(c,event,false);apps=applications_(c);state=state_(c);}
           }
           if(decision.key){var p=state[decision.key];p.latestEmail=Math.max(p.latestEmail||0,m.date);put_(c,'Applications',decision.key,p);}
           put_(c,'Messages',m.id,{processedAt:Date.now(),signature:signature});seen[m.id]=signature;processed++;count++;part.scanned++;
@@ -179,18 +179,29 @@ function scan_() {
         save_(key,part);
       }
     }
+    // Catch up explicit decisions first, including older messages missed by prior versions.
+    var decisionKey='tracker.decisions.v1',decisions=json_(decisionKey,null);
+    if(!decisions||decisions.matcherVersion!==matcherVersion)decisions={after:Math.floor(Date.parse(c.startDate+'T00:00:00Z')/1000)-86400,before:now,page:null,scanned:0,matcherVersion:matcherVersion,query:'{"not moving forward" "not be moving forward" "not to move forward" "other candidates" "unsuccessful" "interview invitation" "invite you"}'};
+    lane(decisions,decisionKey,20,false);
     lane(live,liveKey,40,false);
-    // Prioritize cleaning existing review items rather than waiting for the full backfill.
-    var reviewIds=Object.keys(events).filter(function(id){return events[id].outcome==='review'&&events[id].reviewFilterVersion!=='v6';});
+    // Re-evaluate held messages against today's rows and automatically apply clear matches.
+    // Rotate through the queue, so an ambiguous message cannot starve later decisions.
+    var reviewIds=Object.keys(events).filter(function(id){return events[id].outcome==='review';}).sort(function(a,b){return (events[a].reviewCheckedAt||0)-(events[b].reviewCheckedAt||0)||(events[b].emailDate||0)-(events[a].emailDate||0);});
     for(var r=0;r<Math.min(reviewIds.length,20)&&Date.now()-started<210000;r++){
       var review=events[reviewIds[r]],reviewMail=message_(gmailRetry_(function(){return Gmail.Users.Messages.get('me',review.id,{format:'full'});}));
-      if(reviewMail.decodeError)continue;
+      review.reviewCheckedAt=Date.now();
+      if(reviewMail.decodeError){put_(c,'Events',review.id,review);continue;}
       var check=TrackerMatcher.decide(apps,reviewMail,state);
-      review.reviewFilterVersion='v6';
+      review.reviewFilterVersion='v7';
       if(check.kind==='ignore'||check.kind==='same'){
-        review.outcome='resolved';review.reason='Review filter recheck: '+check.reason;
+        review.outcome='resolved';review.reason='Review recheck: '+check.reason;
+      }else{
+        var matched=apps.find(function(a){return a.key===check.key;});
+        review.key=check.key||null;review.after=check.status||null;review.reason=check.reason;
+        review.before=matched?matched.status:null;review.company=matched?matched.company:'Needs a match';review.title=matched?matched.title:review.subject;review.candidates=check.candidates||[];
       }
       put_(c,'Events',review.id,review);
+      if(check.kind==='update'&&c.autoApply){writeEvent_(c,review,false);apps=applications_(c);state=state_(c);}
     }
     lane(cursor,TRACKER.cursor,60,true);
     save_(TRACKER.health,{lastRun:new Date().toISOString(),message:'Checked '+processed+' messages this run.',error:null});
